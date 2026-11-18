@@ -2,6 +2,10 @@
 
 Skill Inventory 在 Windows 本机提供 Skill 编辑、发布、授权分发和 Codex 同步。管理员管理草稿、版本和角色，普通用户查看并下载获授权的版本，为自己的客户端创建可撤销的设备令牌。
 
+## 便携演示
+
+在 Windows x64 完整解压演示 ZIP，双击 `Start-Demo.cmd`。网页、API 和后台客户端会一起启动，首次运行自动生成演示账号、发布数据和三个 Codex 项目。操作顺序和验收判据见 [演示验收](docs/demo-acceptance.md)。
+
 ## 启动网页和 API
 
 准备 PowerShell 7.4+、JDK 21+、Maven 3.9+、Node.js 22.12+ 和 npm。使用客户端还需 Python 3.12+ 和已装好的 Codex CLI。
@@ -90,3 +94,28 @@ python -m unittest discover -s client/tests
 ~~~
 
 测试范围和交付验收见 [首版需求](docs/requirements.md)。
+
+## 构建便携演示包
+
+开发机还需 Python 3.14 和 Codex 原生 Windows x64 CLI 0.169.1。从仓库构建时需要 Git，从便携包的 `source/` 重建时使用随包源码清单。准备下列文件到 `tmp/demo-inputs`。构建脚本会核对三个输入的 SHA-256。
+
+- [Eclipse Temurin 21.0.13+9 Windows x64 JRE](https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jre_x64_windows_hotspot_21.0.13_9.zip)，保存为 `temurin.zip`
+- [CPython 3.14.7 Windows amd64 embeddable](https://www.python.org/ftp/python/3.14.7/python-3.14.7-embed-amd64.zip)，保存为 `python.zip`
+- [Codex 0.169.1 LICENSE](https://raw.githubusercontent.com/openai/codex/rust-v0.169.1/LICENSE)，保存为 `codex-license.txt`
+
+从 Codex npm 平台包 `@openai/codex-win32-x64` 取出其 `vendor/x86_64-pc-windows-msvc` 整个目录。
+
+```powershell
+python demo/build.py --inputs tmp/demo-inputs --codex 'C:/path/to/x86_64-pc-windows-msvc' --output tmp/demo-release
+```
+
+输出包括可直接运行的展开目录、分发 ZIP 和 SHA-256。构建会运行 Java 测试、Vue 类型检查和构建以及 Python 客户端测试。从仓库构建时，ZIP 包含 Git 已跟踪文件和未忽略的新源码，构建前先检查工作树；从分发源码重建时，新增源码要加入 `SOURCE-FILES.txt`。
+
+开发调试可复用演示数据。第一次运行展开目录的 `Start-Demo.cmd`，通过菜单 6 取得本轮目录，按 Q 关闭三端。在源码目录执行以下命令，使用同一份 SQLite 数据库和演示账号。
+
+```powershell
+$env:INVENTORY_DB = 'C:/path/to/Skill-Inventory-Demo/demo-data/run-xxxxxxxxxxxx/inventory.db'
+pwsh -NoProfile -File ./start.ps1 -ApiPort 18747 -WebPort 15173
+```
+
+用浏览器打开 `http://127.0.0.1:15173` 验证前端热更新。若需同时调试客户端，退出开发服务后重新用便携菜单启动，或从菜单 7 打开的隔离命令窗口在开发 API 运行时执行 `inventory sync` 和 `inventory codex --list-skills`。开发服务和便携服务轮流使用同一端口及数据库。

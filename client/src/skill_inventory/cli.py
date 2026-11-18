@@ -37,10 +37,15 @@ def arguments():
 
 
 def configure(data, args):
-    server = sync.server_address(args.server)
-    if not 5 <= args.interval <= 86400:
+    bind(data, args.server, args.interval)
+
+
+def bind(data, server, interval, token=None):
+    server = sync.server_address(server)
+    if not 5 <= interval <= 86400:
         raise ValueError("同步间隔须为 5 至 86400 秒")
-    token = getpass.getpass("设备令牌：").strip()
+    if token is None:
+        token = getpass.getpass("设备令牌：").strip()
     if not re.fullmatch("[a-zA-Z0-9_-]{43}", token):
         raise ValueError("设备令牌格式不正确")
     account = sync.Api(server, token).get("/device")
@@ -53,9 +58,9 @@ def configure(data, args):
             state.save(data)
             raise ValueError("先前账号的文件仍在使用，请关闭相关程序后重新绑定")
     state.save_token(token)
-    data.update(server=server, account=account, interval=args.interval)
+    data.update(server=server, account=account, interval=interval)
     state.save(data)
-    print(f"已绑定 {account['username']}，同步间隔 {args.interval} 秒")
+    print(f"已绑定 {account['username']}，同步间隔 {interval} 秒")
 
 
 def select(data, args):
