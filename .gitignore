@@ -1,0 +1,9 @@
+/tmp/
+/data/
+**/target/
+**/node_modules/
+**/dist/
+**/__pycache__/
+*.egg-info/
+*.pyc
+.env
