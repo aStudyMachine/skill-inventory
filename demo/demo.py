@@ -20,6 +20,7 @@ BUNDLE = Path(__file__).resolve().parents[2]
 RUNTIME = BUNDLE / "runtime"
 PROJECTS = ("inherit", "pinned", "disabled")
 SLUG = "sprint-brief"
+DESKTOP = "Skill-Inventory-Client.exe"
 
 
 def process_env(lab):
@@ -189,10 +190,14 @@ def choose_lab(args):
         lab = data / ("run-" + secrets.token_hex(6))
         lab.mkdir()
         pointer.write_text(lab.name, encoding="ascii")
+    return current_lab(pointer)
+
+
+def current_lab(pointer):
     name = pointer.read_text(encoding="ascii")
     if not name.startswith("run-") or len(name) != 16 or any(ch not in "0123456789abcdef" for ch in name[4:]):
         raise ValueError("演示目录索引无效，请使用 --fresh")
-    return data / name
+    return pointer.parent / name
 
 
 def main():
@@ -222,7 +227,7 @@ def run(args):
     process_env(lab)
     passwords = credentials(lab)
     origin = f"http://127.0.0.1:{args.port}"
-    backend = worker = None
+    backend = worker = desktop = None
     try:
         backend = start_server(lab, args.port, passwords["admin"])
         prepare(lab, origin, passwords)
@@ -239,8 +244,9 @@ def run(args):
             return
         if not args.no_browser:
             webbrowser.open(origin)
+        desktop = start_desktop()
         menu = ("1 查看三项目  2 客户端状态  3 立即同步  4 暂停/恢复网页和 API\n"
-                "5 显示演示账号  6 打开演示数据目录  7 客户端命令窗口  Q 退出")
+                "5 显示演示账号  6 打开演示数据目录  7 客户端命令窗口  8 打开桌面客户端  Q 退出")
         while True:
             print(menu)
             choice = input("> ").strip().lower()
@@ -266,6 +272,9 @@ def run(args):
                     os.startfile(lab)
                 elif choice == "7":
                     interactive_shell(lab)
+                elif choice == "8":
+                    if desktop.poll() is not None:
+                        desktop = start_desktop()
                 elif choice == "q":
                     break
             except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
@@ -275,7 +284,8 @@ def run(args):
     finally:
         # 显示窗口退出后，本次演示的服务和后台进程均结束。
         try:
-            if worker is not None and worker.poll() is None:
+            stop_process(desktop)
+            if worker is not None:
                 try:
                     command("stop", timeout=12)
                 except subprocess.TimeoutExpired:
@@ -292,6 +302,10 @@ def interactive_shell(lab):
     shell = Path(os.environ["SystemRoot"]) / "System32/cmd.exe"
     subprocess.Popen([str(shell), "/d", "/k", "echo Use inventory --help or cd projects\\inherit."],
                      cwd=lab, env=env, creationflags=subprocess.CREATE_NEW_CONSOLE)
+
+
+def start_desktop():
+    return subprocess.Popen([str(BUNDLE / DESKTOP)], cwd=BUNDLE)
 
 
 if __name__ == "__main__":

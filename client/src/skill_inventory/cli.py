@@ -91,6 +91,12 @@ def running():
         return True
 
 
+def console_python():
+    executable = Path(sys.executable)
+    console = executable.with_name("python.exe")
+    return str(console if executable.name.lower() == "pythonw.exe" and console.is_file() else executable)
+
+
 def run_sync():
     with state.lock("state"):
         data = state.state()
@@ -130,7 +136,7 @@ def control(action):
             log = state.ROOT / "worker.log"
             with log.open("wb") as output:
                 process = subprocess.Popen(
-                    [sys.executable, "-m", "skill_inventory.cli", "worker"], stdin=subprocess.DEVNULL,
+                    [console_python(), "-m", "skill_inventory.cli", "worker"], stdin=subprocess.DEVNULL,
                     stdout=output, stderr=subprocess.STDOUT,
                     creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW,
                 )
@@ -153,8 +159,7 @@ def control(action):
         print("后台同步已停止")
 
 
-def launch(list_only):
-    cwd = Path.cwd().resolve()
+def discover(cwd, list_only=True):
     with state.lock("state"):
         data = state.state()
         paths = state.installed()
@@ -173,13 +178,22 @@ def launch(list_only):
         if desired - identified:
             raise ValueError("Codex 未发现选定的受管 Skill，请检查配置和 status")
         options, conflicts = codex.launch_options(config, discovered, managed, desired)
-        for conflict in conflicts:
-            print(f"Skill 同名冲突，已保留现有文件并停用受管副本：{conflict}", file=sys.stderr)
+        actual = []
         if list_only:
-            _, actual = codex.inspect(cwd, options)
-            print(json.dumps([{"name": item["name"], "path": item["path"], "enabled": item["enabled"]}
-                              for item in actual if item["key"] in managed], ensure_ascii=False, indent=2))
-            return 0
+            _, inspected = codex.inspect(cwd, options)
+            actual = [{"name": item["name"], "path": item["path"], "enabled": item["enabled"]}
+                      for item in inspected if item["key"] in managed]
+        return options, conflicts, actual
+
+
+def launch(list_only):
+    cwd = Path.cwd().resolve()
+    options, conflicts, actual = discover(cwd, list_only)
+    for conflict in conflicts:
+        print(f"Skill 同名冲突，已保留现有文件并停用受管副本：{conflict}", file=sys.stderr)
+    if list_only:
+        print(json.dumps(actual, ensure_ascii=False, indent=2))
+        return 0
     return subprocess.call([*codex.command(), *options], cwd=cwd)
 
 

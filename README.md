@@ -4,7 +4,7 @@ Skill Inventory 在 Windows 本机提供 Skill 编辑、发布、授权分发和
 
 ## 便携演示
 
-在 Windows x64 完整解压演示 ZIP，双击 `Start-Demo.cmd`。网页、API 和后台客户端会一起启动，首次运行自动生成演示账号、发布数据和三个 Codex 项目。操作顺序和验收判据见 [演示验收](docs/demo-acceptance.md)。
+在 Windows x64 完整解压演示 ZIP，双击 `Start-Demo.cmd`。网页、API、后台同步和桌面客户端会一起启动，首次运行自动生成演示账号、发布数据和三个 Codex 项目。首次初始化后，可以双击同目录的 `Skill-Inventory-Client.exe` 重新打开桌面客户端。操作顺序和验收判据见 [演示验收](docs/demo-acceptance.md)。
 
 ## 启动网页和 API
 
@@ -62,6 +62,8 @@ try {
 
 从仓库根目录安装。以下命令均以当前 Windows 用户执行。
 
+安装后可运行 `skill-inventory-gui` 打开桌面客户端。窗口提供设备绑定、后台启停、立即同步、同步状态和项目规则。选中项目即可检查 Codex 实际启用的版本，或在该目录打开 Codex。关闭窗口后后台同步继续，使用「停止后台」可结束同步。便携包会自动打开客户端窗口。
+
 ~~~powershell
 python -m pip install ./client
 python -m skill_inventory.cli configure http://127.0.0.1:8787 --interval 60
@@ -97,7 +99,7 @@ python -m unittest discover -s client/tests
 
 ## 构建便携演示包
 
-开发机还需 Python 3.14 和 Codex 原生 Windows x64 CLI 0.169.1。从仓库构建时需要 Git，从便携包的 `source/` 重建时使用随包源码清单。准备下列文件到 `tmp/demo-inputs`。构建脚本会核对三个输入的 SHA-256。
+开发机还需完整安装的 Windows x64 Python 3.14.7（含 Tcl/Tk 9）和 Codex 原生 Windows x64 CLI 0.169.1。从仓库构建时需要 Git，从便携包的 `source/` 重建时使用随包源码清单。准备下列文件到 `tmp/demo-inputs`。构建脚本会核对三个输入的 SHA-256。
 
 - [Eclipse Temurin 21.0.13+9 Windows x64 JRE](https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jre_x64_windows_hotspot_21.0.13_9.zip)，保存为 `temurin.zip`
 - [CPython 3.14.7 Windows amd64 embeddable](https://www.python.org/ftp/python/3.14.7/python-3.14.7-embed-amd64.zip)，保存为 `python.zip`
@@ -109,7 +111,7 @@ python -m unittest discover -s client/tests
 python demo/build.py --inputs tmp/demo-inputs --codex 'C:/path/to/x86_64-pc-windows-msvc' --output tmp/demo-release
 ```
 
-输出包括可直接运行的展开目录、分发 ZIP 和 SHA-256。构建会运行 Java 测试、Vue 类型检查和构建以及 Python 客户端测试。从仓库构建时，ZIP 包含 Git 已跟踪文件和未忽略的新源码，构建前先检查工作树；从分发源码重建时，新增源码要加入 `SOURCE-FILES.txt`。
+输出包括可直接运行的展开目录、分发 ZIP 和 SHA-256。构建会运行 Java 测试、Vue 类型检查和构建以及 Python 客户端测试，还会用系统自带的 .NET Framework C# 编译器生成 `Skill-Inventory-Client.exe`。EXE 从包内加载 Python 和桌面客户端源码。从仓库构建时，ZIP 包含 Git 已跟踪文件和未忽略的新源码，构建前先检查工作树；从分发源码重建时，新增源码要加入 `SOURCE-FILES.txt`。
 
 开发调试可复用演示数据。第一次运行展开目录的 `Start-Demo.cmd`，通过菜单 6 取得本轮目录，按 Q 关闭三端。在源码目录执行以下命令，使用同一份 SQLite 数据库和演示账号。
 

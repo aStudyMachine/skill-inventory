@@ -84,6 +84,19 @@ def build(args):
         archive.extractall(python)
     with (python / "python314._pth").open("a", encoding="ascii") as config:
         config.write("\n../python-libs\n../../source/client/src\n../../source/demo\n")
+    # 官方完整安装中的 Tcl/Tk 9 运行库带内嵌脚本，便携 Python 需要单独携带。
+    import tkinter
+
+    if sys.version_info[:3] != (3, 14, 7) or tkinter.TkVersion != 9.0:
+        raise SystemExit("请使用完整安装的 Windows x64 Python 3.14.7（含 Tcl/Tk 9）构建")
+    installation = Path(sys.base_prefix)
+    for name in ("_tkinter.pyd", "tcl90.dll", "tcl9tk90.dll", "zlib1.dll"):
+        shutil.copy2(installation / "DLLs" / name, python)
+    shutil.copytree(installation / "Lib/tkinter", python / "tkinter",
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    subprocess.run([str(python / "python.exe"), "-c",
+                    "import tkinter; root = tkinter.Tk(); root.withdraw(); root.destroy()"],
+                   check=True)
     execute(sys.executable, "-m", "pip", "install", "--only-binary=:all:", "--no-deps",
             "--no-compile", "--target", runtime / "python-libs", "-r", "demo/requirements-windows.txt")
     shutil.copytree(native, runtime / "codex")
@@ -91,9 +104,14 @@ def build(args):
 
     app = bundle / "app"
     shutil.copytree(ROOT / "web/dist", app / "web")
-    shutil.copy2(ROOT / "server/target/skill-inventory-0.1.0.jar", app / "skill-inventory.jar")
+    shutil.copy2(ROOT / "server/target/skill-inventory-0.2.0.jar", app / "skill-inventory.jar")
     copy_source(bundle / "source")
     shutil.copy2(ROOT / "demo/Start-Demo.cmd", bundle)
+    compiler = Path(os.environ["WINDIR"]) / "Microsoft.NET/Framework64/v4.0.30319/csc.exe"
+    subprocess.run([str(compiler), "/nologo", "/target:winexe", "/platform:x64",
+                    "/reference:System.Windows.Forms.dll",
+                    f"/out:{bundle / 'Skill-Inventory-Client.exe'}",
+                    str(ROOT / "demo/DesktopLauncher.cs")], check=True)
     (bundle / "bin").mkdir()
     shutil.copy2(ROOT / "demo/inventory.cmd", bundle / "bin")
     shutil.copy2(ROOT / "docs/demo-acceptance.md", bundle / "演示验收.md")

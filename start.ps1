@@ -35,7 +35,7 @@ try {
     if ($password -and ($password.Length -lt 10 -or [Text.Encoding]::UTF8.GetByteCount($password) -gt 72)) {
         throw '密码至少 10 个字符，且 UTF-8 编码不超过 72 字节'
     }
-    $server = Start-Process java -ArgumentList '-jar', 'server/target/skill-inventory-0.1.0.jar' `
+    $server = Start-Process java -ArgumentList '-jar', 'server/target/skill-inventory-0.2.0.jar' `
         -WorkingDirectory $root -WindowStyle Hidden -PassThru `
         -Environment @{INVENTORY_ADMIN_PASSWORD=$password; SERVER_PORT="$ApiPort"} `
         -RedirectStandardOutput (Join-Path $logs 'server.log') -RedirectStandardError (Join-Path $logs 'server-error.log')
