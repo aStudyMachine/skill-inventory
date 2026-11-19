@@ -33,7 +33,7 @@ class InventoryHttpTest {
         create(admin, "release-smoke", SOURCE + "旧版");
         assertThat(admin.get("/skills/release-smoke", 404).path("code").asString()).isEqualTo("skill_unavailable");
         publish(admin, "release-smoke", "1.5.1");
-        admin.send("PUT", "/admin/skills/release-smoke", draft("release-smoke", SOURCE + "新版"), 204);
+        admin.send("PUT", "/admin/skills/release-smoke", draft("release-smoke", SOURCE + "新版"), 200);
         var history = admin.get("/admin/skills/release-smoke", 200);
         assertThat(history.at("/skill/status").asString()).isEqualTo("modified");
         assertThat(admin.request("GET", "/skills/release-smoke/content", null, null, true).body())
@@ -55,8 +55,9 @@ class InventoryHttpTest {
     }
 
     @Test
-    void rolesApplyToAllReadRoutesAndTokenRevocationIsImmediate() throws Exception {
+    void rolesApplyToAllReadRoutesAndLogoutIsImmediate() throws Exception {
         var admin = login("admin", "integration-password");
+        admin.send("POST", "/admin/accounts", Map.of("username", "demo-dev", "password", "8".repeat(8)), 400);
         admin.send("POST", "/admin/accounts", Map.of("username", "reader-a", "password", "reader-a-password"), 201);
         admin.send("POST", "/admin/accounts", Map.of("username", "reader-b", "password", "reader-b-password"), 201);
         admin.send("POST", "/admin/roles", Map.of("name", "研发"), 201);
@@ -76,24 +77,37 @@ class InventoryHttpTest {
         }
         var reader = login("reader-a", "reader-a-password");
         var other = login("reader-b", "reader-b-password");
-        assertThat(slugs(reader.get("/skills", 200))).containsExactly("dev-skill", "qa-skill");
-        assertThat(slugs(other.get("/skills", 200))).containsExactly("qa-skill");
+        assertThat(skillNames(reader.get("/skills", 200))).containsExactly("dev-skill", "qa-skill");
+        assertThat(skillNames(other.get("/skills", 200))).containsExactly("qa-skill");
         other.get("/admin/skills", 403);
         other.get("/skills/dev-skill/package?version=1.0.0", 404);
 
-        var issued = reader.send("POST", "/device-tokens", Map.of("name", "测试设备"), 201);
-        var bearer = new Requests(issued.path("token").asString());
-        other.send("DELETE", "/device-tokens/" + issued.path("id").asString(), null, 404);
-        var download = bearer.request("GET", "/skills/dev-skill/package?version=1.0.0", null, null, true);
+        var desktop = clientLogin("reader-a", "reader-a-password");
+        desktop.get("/admin/skills", 401);
+        var download = desktop.request("GET", "/skills/dev-skill/package?version=1.0.0", null, null, true);
         assertThat(download.statusCode()).isEqualTo(200);
         assertThat(download.headers().firstValue("X-Skill-Version")).contains("1.0.0");
         admin.send("PUT", "/admin/skills/dev-skill/roles", Map.of("ids", List.of()), 204);
         for (var suffix : List.of("", "/versions", "/content?version=1.0.0", "/package?version=1.0.0")) {
-            bearer.get("/skills/dev-skill" + suffix, 404);
+            desktop.get("/skills/dev-skill" + suffix, 404);
         }
-        assertThat(slugs(bearer.get("/skills", 200))).containsExactly("qa-skill");
-        reader.send("DELETE", "/device-tokens/" + issued.path("id").asString(), null, 204);
-        assertThat(bearer.get("/skills", 401).path("code").asString()).isEqualTo("invalid_token");
+        assertThat(skillNames(desktop.get("/skills", 200))).containsExactly("qa-skill");
+        desktop.send("DELETE", "/client-session", null, 204);
+        assertThat(desktop.get("/skills", 401).path("code").asString()).isEqualTo("client_login_required");
+        reader.get("/skills", 200);
+
+        var id = id(accounts, "username", "reader-a");
+        desktop = clientLogin("reader-a", "reader-a-password");
+        admin.send("PUT", "/admin/accounts/" + id + "/password", Map.of("password", "changed-test-password"), 204);
+        desktop.get("/client-session", 401);
+        reader.get("/session", 401);
+        desktop = clientLogin("reader-a", "changed-test-password");
+        admin.send("PUT", "/admin/accounts/" + id + "/status", Map.of("enabled", false), 204);
+        desktop.get("/client-session", 401);
+        new Requests(null).send("POST", "/client-session",
+                Map.of("username", "reader-a", "password", "changed-test-password"), 401);
+        admin.send("PUT", "/admin/accounts/" + id + "/status", Map.of("enabled", true), 204);
+        desktop.get("/client-session", 401);
     }
 
     @Test
@@ -103,8 +117,8 @@ class InventoryHttpTest {
         var path = "/admin/skills/zip-skill/package";
         assertThat(importZip(admin, path, "../escape.txt").statusCode()).isEqualTo(400);
         assertThat(importZip(admin, path, ".SKILL-INVENTORY.JSON").statusCode()).isEqualTo(400);
-        assertThat(importZip(admin, path, "resources/template.txt").statusCode()).isEqualTo(204);
-        admin.send("PUT", "/admin/skills/zip-skill", draft("zip-skill", SOURCE + "修改正文"), 204);
+        assertThat(importZip(admin, path, "resources/template.txt").statusCode()).isEqualTo(200);
+        admin.send("PUT", "/admin/skills/zip-skill", draft("zip-skill", SOURCE + "修改正文"), 200);
         publish(admin, "zip-skill", "1.0.0");
         assertThat(admin.get("/skills/zip-skill", 200).path("files").toString())
                 .contains("resources/template.txt");
@@ -116,7 +130,7 @@ class InventoryHttpTest {
     private HttpResponse<String> importZip(Requests admin, String path, String resource) throws Exception {
         var output = new ByteArrayOutputStream();
         try (var zip = new ZipOutputStream(output)) {
-            for (var item : Map.of("SKILL.md", SOURCE, resource, "模板内容").entrySet()) {
+            for (var item : Map.of("SKILL.md", SOURCE.replace("name: smoke", "name: zip-skill"), resource, "模板内容").entrySet()) {
                 zip.putNextEntry(new ZipEntry(item.getKey()));
                 zip.write(item.getValue().getBytes(StandardCharsets.UTF_8));
                 zip.closeEntry();
@@ -135,8 +149,8 @@ class InventoryHttpTest {
         throw new AssertionError("未找到 " + value);
     }
 
-    private List<String> slugs(JsonNode data) {
-        return data.valueStream().map(item -> item.path("slug").asString()).toList();
+    private List<String> skillNames(JsonNode data) {
+        return data.valueStream().map(item -> item.path("name").asString()).toList();
     }
 
     private Requests login(String username, String password) throws Exception {
@@ -145,8 +159,36 @@ class InventoryHttpTest {
         return browser;
     }
 
+    @Test
+    void frontmatterDeterminesIdentityAndPublishedNamesRemainReserved() throws Exception {
+        var admin = login("admin", "integration-password");
+        var created = admin.send("POST", "/admin/skills", draft("source-name", SOURCE), 201);
+        assertThat(created.path("name").asString()).isEqualTo("source-name");
+        assertThat(created.path("description").asString()).isEqualTo("示例");
+        assertThat(created.has("slug")).isFalse();
+        admin.send("POST", "/admin/skills", draft("source-name", SOURCE), 409);
+        admin.send("POST", "/admin/skills", Map.of("source", "# 缺失元数据"), 400);
+        admin.send("PUT", "/admin/skills/source-name", draft("renamed", SOURCE), 200);
+        admin.get("/admin/skills/source-name", 404);
+        publish(admin, "renamed", "1.0.0");
+        admin.send("PUT", "/admin/skills/renamed", draft("another", SOURCE), 409);
+        admin.send("PUT", "/admin/skills/renamed", draft("renamed", SOURCE.replace("示例", "新描述")), 200);
+        assertThat(admin.get("/skills/renamed", 200).path("description").asString()).isEqualTo("示例");
+        admin.send("DELETE", "/admin/skills/renamed", null, 204);
+        admin.send("POST", "/admin/skills", draft("renamed", SOURCE), 409);
+    }
+
+    private Requests clientLogin(String username, String password) throws Exception {
+        var anonymous = new Requests(null);
+        var response = anonymous.request("POST", "/client-session",
+                JSON.writeValueAsBytes(Map.of("username", username, "password", password)),
+                "application/json", true);
+        assertThat(response.statusCode()).isEqualTo(200);
+        return new Requests(response.headers().firstValue("Set-Cookie").orElseThrow().split(";", 2)[0]);
+    }
+
     private Map<String, String> draft(String slug, String source) {
-        return Map.of("slug", slug, "name", slug, "description", "测试简介", "source", source);
+        return Map.of("source", source.replace("name: smoke", "name: " + slug));
     }
 
     private void create(Requests admin, String slug, String source) throws Exception {
@@ -159,9 +201,9 @@ class InventoryHttpTest {
 
     private class Requests {
         private final HttpClient http = HttpClient.newBuilder().cookieHandler(new CookieManager()).build();
-        private final String token;
+        private final String session;
 
-        Requests(String token) { this.token = token; }
+        Requests(String session) { this.session = session; }
 
         JsonNode get(String path, int status) throws Exception {
             return send("GET", path, null, status);
@@ -178,7 +220,7 @@ class InventoryHttpTest {
                                      boolean guarded) throws Exception {
             var builder = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/v1" + path));
             if (guarded) builder.header("X-Skill-Inventory", "1");
-            if (token != null) builder.header("Authorization", "Bearer " + token);
+            if (session != null) builder.header("Cookie", session);
             if (contentType != null) builder.header("Content-Type", contentType);
             return http.send(builder.method(method, body == null ? HttpRequest.BodyPublishers.noBody()
                     : HttpRequest.BodyPublishers.ofByteArray(body)).build(), HttpResponse.BodyHandlers.ofString());

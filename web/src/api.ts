@@ -1,8 +1,6 @@
-export interface Account { id: number; username: string; admin: boolean; roles: number[] }
+export interface Account { id: number; username: string; admin: boolean; enabled: boolean; roles: number[] }
 export interface Role { id: number; name: string }
-export interface Token { id: string; name: string; createdAt: string }
 export interface Skill {
-  slug: string
   name: string
   description: string
   status?: 'draft' | 'modified' | 'published' | 'archived'

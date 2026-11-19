@@ -27,11 +27,6 @@ class AccountApi {
         return accounts.browser(request);
     }
 
-    @GetMapping("/device")
-    Accounts.Actor device(HttpServletRequest request) {
-        return accounts.consumer(request);
-    }
-
     @DeleteMapping("/session")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void logout(HttpServletRequest request) {
@@ -39,21 +34,27 @@ class AccountApi {
         if (session != null) session.invalidate();
     }
 
-    @GetMapping("/device-tokens")
-    List<Map<String, Object>> tokens(HttpServletRequest request) {
-        return accounts.tokens(accounts.browser(request));
+    @PostMapping("/client-session")
+    Accounts.Actor clientLogin(HttpServletResponse response, @RequestBody Accounts.Credentials input) {
+        var login = accounts.clientSignIn(input);
+        response.addHeader("Set-Cookie", clientCookie(login.session()));
+        return login.actor();
     }
 
-    @PostMapping("/device-tokens")
-    @ResponseStatus(HttpStatus.CREATED)
-    Map<String, String> issue(HttpServletRequest request, @RequestBody Accounts.Name input) {
-        return accounts.issueToken(accounts.browser(request), input.name());
+    @GetMapping("/client-session")
+    Accounts.Actor clientCurrent(HttpServletRequest request) {
+        return accounts.client(request);
     }
 
-    @DeleteMapping("/device-tokens/{id}")
+    @DeleteMapping("/client-session")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    void revoke(HttpServletRequest request, @PathVariable String id) {
-        accounts.revokeToken(accounts.browser(request), id);
+    void clientLogout(HttpServletRequest request, HttpServletResponse response) {
+        accounts.clientSignOut(request);
+        response.addHeader("Set-Cookie", clientCookie("") + "; Max-Age=0");
+    }
+
+    private static String clientCookie(String value) {
+        return Accounts.CLIENT_COOKIE + "=" + value + "; Path=/api/v1; HttpOnly; SameSite=Strict";
     }
 
     @GetMapping("/admin/accounts")
@@ -71,6 +72,18 @@ class AccountApi {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void assign(@PathVariable long id, @RequestBody Accounts.Ids input) {
         accounts.assignRoles(id, input.ids());
+    }
+
+    @PutMapping("/admin/accounts/{id}/password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void changePassword(@PathVariable long id, @RequestBody Accounts.PasswordChange input) {
+        accounts.changePassword(id, input.password());
+    }
+
+    @PutMapping("/admin/accounts/{id}/status")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void setEnabled(@PathVariable long id, @RequestBody Accounts.AccountStatus input) {
+        accounts.setEnabled(id, input.enabled());
     }
 
     @GetMapping("/admin/roles")

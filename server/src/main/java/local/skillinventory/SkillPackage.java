@@ -97,7 +97,9 @@ record SkillPackage(Map<String, byte[]> files) {
         }
     }
 
-    void validate() {
+    record Metadata(String name, String description) {}
+
+    Metadata metadata() {
         var lines = source().lines().toList();
         int end = lines.size() > 1 ? lines.subList(1, lines.size()).indexOf("---") + 1 : 0;
         if (end == 0 || !lines.getFirst().equals("---")) throw ApiError.invalid("SKILL.md 缺少 YAML 元数据");
@@ -110,11 +112,17 @@ record SkillPackage(Map<String, byte[]> files) {
             throw ApiError.invalid("SKILL.md 的 YAML 元数据无效");
         }
         if (!(metadata instanceof Map<?, ?> map) || !(map.get("name") instanceof String name)
-                || !name.matches("[a-z0-9]+(?:-[a-z0-9]+)*") || name.length() > 64
+                || !validName(name)
                 || !(map.get("description") instanceof String description) || description.isBlank()
                 || description.length() > 1024) {
             throw ApiError.invalid("SKILL.md 必须包含有效的 name 和 description");
         }
+        return new Metadata(name, description);
+    }
+
+    private static boolean validName(String name) {
+        return name.length() <= 64 && name.matches("[a-z0-9]+(?:-[a-z0-9]+)*")
+                && !name.matches("(con|prn|aux|nul|com[0-9]|lpt[0-9])");
     }
 
     List<String> names() {

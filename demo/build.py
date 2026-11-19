@@ -1,19 +1,24 @@
 """在开发机构建 Windows x64 便携演示包。"""
 
 import argparse
+from datetime import datetime
 import hashlib
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 from zipfile import ZipFile, ZIP_DEFLATED
 
 ROOT = Path(__file__).resolve().parents[1]
+BUNDLE_NAME = "Skill-Inventory-Demo"
+ZIP_NAME = BUNDLE_NAME + "-Windows-x64"
+STAMP = r"(?:-\d{8}-\d{6}-\d{6})?"
 ARCHIVES = {
     "temurin.zip": "2332c0b4cff6bed722da3567c91d5e47568bcba863fa4945d0a8d6fc76158628",
     "python.zip": "d297e5ff019966817ad8502465176139f2d3d840fa4ed84b13bed399a6ab1f15",
-    "codex-license.txt": "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc",
 }
 
 
@@ -56,24 +61,50 @@ def copy_source(destination):
 
 def build(args):
     inputs = args.inputs.resolve(strict=True)
-    native = args.codex.resolve(strict=True)
     output = args.output.resolve()
-    bundle = output / "Skill-Inventory-Demo"
-    target = output / "Skill-Inventory-Demo-Windows-x64.zip"
-    if bundle.exists() or target.exists():
-        raise SystemExit("输出已存在，请指定新的输出目录")
     for name, expected in ARCHIVES.items():
         if digest(inputs / name) != expected:
             raise SystemExit(f"{name} 的 SHA-256 不符")
-    version = subprocess.check_output([str(native / "bin/codex.exe"), "--version"], text=True)
-    if version.strip() != "codex-cli 0.169.1":
-        raise SystemExit("演示包需要 Codex 原生 CLI 0.169.1")
     execute("mvn.cmd", "-B", "-f", "server/pom.xml", "clean", "package")
     execute("npm.cmd", "--prefix", "web", "ci", "--no-audit", "--no-fund")
     execute("npm.cmd", "--prefix", "web", "run", "build")
     subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "client/tests"],
                    cwd=ROOT, env=dict(os.environ, PYTHONPATH=str(ROOT / "client/src")), check=True)
 
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    output.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix=".demo-build-", dir=output) as staging:
+        staging = Path(staging)
+        bundle = staging / f"{BUNDLE_NAME}-{stamp}"
+        target = staging / f"{ZIP_NAME}-{stamp}.zip"
+        package(inputs, bundle, target)
+        # 完整生成并计算校验值后才发布本轮产物，最后清理历史。
+        published = set()
+        for path in (bundle, target.with_suffix(".zip.sha256"), target):
+            destination = output / path.name
+            path.rename(destination)
+            published.add(destination)
+        clean_builds(output, published)
+        print(output / target.name)
+
+
+def clean_builds(output, published):
+    for path in output.iterdir():
+        if path in published or path.is_symlink() or path.is_junction() or path.resolve().parent != output:
+            continue
+        try:
+            if path.is_file() and re.fullmatch(ZIP_NAME + STAMP + r"\.zip(?:\.sha256)?", path.name):
+                path.unlink()
+            elif path.is_dir() and re.fullmatch(BUNDLE_NAME + STAMP, path.name):
+                if (path / "demo-data").exists():
+                    print(f"保留含演示运行数据的目录：{path}", file=sys.stderr)
+                elif (path / "Start-Demo.cmd").is_file() and (path / "app/skill-inventory.jar").is_file():
+                    shutil.rmtree(path)
+        except OSError as error:
+            print(f"历史产物清理失败：{path}（{error}）", file=sys.stderr)
+
+
+def package(inputs, bundle, target):
     runtime = bundle / "runtime"
     runtime.mkdir(parents=True)
     with ZipFile(inputs / "temurin.zip") as archive:
@@ -99,12 +130,10 @@ def build(args):
                    check=True)
     execute(sys.executable, "-m", "pip", "install", "--only-binary=:all:", "--no-deps",
             "--no-compile", "--target", runtime / "python-libs", "-r", "demo/requirements-windows.txt")
-    shutil.copytree(native, runtime / "codex")
-    shutil.copy2(inputs / "codex-license.txt", runtime / "codex/LICENSE.txt")
 
     app = bundle / "app"
     shutil.copytree(ROOT / "web/dist", app / "web")
-    shutil.copy2(ROOT / "server/target/skill-inventory-0.2.0.jar", app / "skill-inventory.jar")
+    shutil.copy2(ROOT / "server/target/skill-inventory-0.3.0.jar", app / "skill-inventory.jar")
     copy_source(bundle / "source")
     shutil.copy2(ROOT / "demo/Start-Demo.cmd", bundle)
     compiler = Path(os.environ["WINDIR"]) / "Microsoft.NET/Framework64/v4.0.30319/csc.exe"
@@ -119,14 +148,12 @@ def build(args):
     with ZipFile(target, "x", ZIP_DEFLATED, compresslevel=3) as archive:
         for path in sorted(bundle.rglob("*")):
             if path.is_file():
-                archive.write(path, path.relative_to(output).as_posix())
+                archive.write(path, path.relative_to(bundle.parent).as_posix())
     target.with_suffix(".zip.sha256").write_text(f"{digest(target)}  {target.name}\n", encoding="ascii")
-    print(target)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="构建 Skill Inventory Windows x64 演示包")
-    parser.add_argument("--inputs", type=Path, required=True, help="三个经校验的上游运行时输入所在目录")
-    parser.add_argument("--codex", type=Path, required=True, help="Codex npm 平台包中的 vendor 平台目录")
-    parser.add_argument("--output", type=Path, required=True, help="输出目录")
+    parser.add_argument("--inputs", type=Path, required=True, help="两个经校验的上游运行时输入所在目录")
+    parser.add_argument("--output", type=Path, required=True, help="固定输出目录，成功后清理其中的历史演示构建")
     build(parser.parse_args())

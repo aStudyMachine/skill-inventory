@@ -27,7 +27,7 @@ def command():
 def rpc(cwd, requests, options=()):
     messages = [
         {"id": 0, "method": "initialize",
-         "params": {"clientInfo": {"name": "skill-inventory", "version": "0.2.0"}}},
+         "params": {"clientInfo": {"name": "skill-inventory", "version": "0.3.0"}}},
         {"method": "initialized"},
     ]
     messages.extend({"id": index, "method": method, "params": params}

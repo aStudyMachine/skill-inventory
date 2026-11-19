@@ -15,25 +15,23 @@ const version = ref('')
 const selectedRoles = ref<number[]>([])
 const creating = ref(false)
 const preview = ref(false)
-const starter = (slug: string) => '---\nname: ' + slug + '\ndescription: 技能用途\n---\n\n# 使用方法\n'
-const editor = ref({ slug: '', name: '', description: '', source: '' })
-const dirty = computed(() => !!draft.value && (
-  editor.value.name !== draft.value.skill.name || editor.value.description !== draft.value.skill.description ||
-  editor.value.source !== draft.value.source))
+const starter = '---\nname: \ndescription: \n---\n\n# 使用方法\n'
+const editor = ref({ source: '' })
+const dirty = computed(() => !!draft.value && editor.value.source !== draft.value.source)
 const error = ref('')
 const notice = ref('')
 const busy = ref(false)
 const filtered = computed(() => {
   const term = query.value.trim().toLowerCase()
-  return list.value.filter(skill => skill.name.toLowerCase().includes(term) || skill.slug.includes(term))
+  return list.value.filter(skill => skill.name.toLowerCase().includes(term))
 })
-const adminPath = (slug = '') => '/admin/skills' + (slug ? '/' + slug : '')
-const readPath = (slug: string) => '/skills/' + slug
+const adminPath = (name = '') => '/admin/skills' + (name ? '/' + name : '')
+const readPath = (name: string) => '/skills/' + name
 const packagePath = computed(() => {
   const item = release.value
   if (!item) return ''
-  return '/api/v1' + (props.admin ? adminPath(item.slug) + '/releases/' + item.version + '/package' :
-    readPath(item.slug) + '/package?version=' + item.version)
+  return '/api/v1' + (props.admin ? adminPath(item.name) + '/releases/' + item.version + '/package' :
+    readPath(item.name) + '/package?version=' + item.version)
 })
 
 async function run(action: () => Promise<void>) {
@@ -55,10 +53,10 @@ onMounted(() => run(async () => {
   if (props.admin) roles.value = await api<Role[]>('/admin/roles')
 }))
 
-async function loadDraft(slug: string) {
-  const result = await api<Draft>(adminPath(slug))
+async function loadDraft(name: string) {
+  const result = await api<Draft>(adminPath(name))
   draft.value = result
-  editor.value = { slug, name: result.skill.name, description: result.skill.description, source: result.source }
+  editor.value = { source: result.source }
   selectedRoles.value = [...result.roles]
   version.value = result.nextVersion
   creating.value = false
@@ -67,8 +65,7 @@ async function loadDraft(slug: string) {
 }
 
 function canLeave() {
-  const input = editor.value
-  const changedNew = creating.value && (input.slug || input.name || input.description || input.source !== starter(''))
+  const changedNew = creating.value && editor.value.source !== starter
   return !busy.value && (!(dirty.value || changedNew) || window.confirm('放弃当前表单中的修改？'))
 }
 
@@ -77,10 +74,10 @@ defineExpose({ canLeave })
 function open(skill: Skill) {
   if (!canLeave()) return
   return run(async () => {
-    if (props.admin) await loadDraft(skill.slug)
+    if (props.admin) await loadDraft(skill.name)
     else {
-      releases.value = await api<Release[]>(readPath(skill.slug) + '/versions')
-      await openRelease(skill.slug, releases.value[0]?.version ?? '')
+      releases.value = await api<Release[]>(readPath(skill.name) + '/versions')
+      await openRelease(skill.name, releases.value[0]?.version ?? '')
     }
   })
 }
@@ -91,16 +88,15 @@ function newSkill() {
   release.value = undefined
   preview.value = false
   creating.value = true
-  editor.value = { slug: '', name: '', description: '', source: starter('') }
+  editor.value = { source: starter }
 }
 
 async function save() {
   await run(async () => {
-    const slug = editor.value.slug
-    const input = { ...editor.value }
-    if (creating.value) input.source = input.source.replace(/^---\nname: \n/, '---\nname: ' + slug + '\n')
-    await api(creating.value ? adminPath() : adminPath(slug), creating.value ? 'POST' : 'PUT', input)
-    await loadDraft(slug)
+    const name = draft.value?.skill.name
+    const saved = await api<Pick<Skill, 'name' | 'description'>>(adminPath(name),
+      creating.value ? 'POST' : 'PUT', { source: editor.value.source })
+    await loadDraft(saved.name)
     await refresh()
     notice.value = '草稿已保存'
   })
@@ -111,13 +107,13 @@ async function importZip(event: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file || !draft.value || !window.confirm('用 ZIP 替换整个草稿文件包？')) return
-  const slug = draft.value.skill.slug
+  const name = draft.value.skill.name
   await run(async () => {
     const form = new FormData()
     form.append('file', file)
-    await api(adminPath(slug) + '/package', 'PUT', form)
+    const saved = await api<Pick<Skill, 'name' | 'description'>>(adminPath(name) + '/package', 'PUT', form)
     const selection = selectedRoles.value
-    await loadDraft(slug)
+    await loadDraft(saved.name)
     selectedRoles.value = selection
     await refresh()
     notice.value = '文件包已导入草稿'
@@ -125,20 +121,20 @@ async function importZip(event: Event) {
 }
 
 async function publish() {
-  const slug = editor.value.slug
+  const name = draft.value!.skill.name
   await run(async () => {
-    await api(adminPath(slug) + '/releases', 'POST', { version: version.value })
-    await loadDraft(slug)
+    await api(adminPath(name) + '/releases', 'POST', { version: version.value })
+    await loadDraft(name)
     await refresh()
     notice.value = '版本已发布'
   })
 }
 
 async function remove() {
-  const slug = editor.value.slug
+  const name = draft.value!.skill.name
   if (!window.confirm(draft.value?.skill.status === 'draft' ? '删除这个未发布的草稿？' : '归档后将停止分发所有版本。继续归档？')) return
   await run(async () => {
-    await api(adminPath(slug), 'DELETE')
+    await api(adminPath(name), 'DELETE')
     draft.value = undefined
     release.value = undefined
     await refresh()
@@ -148,17 +144,17 @@ async function remove() {
 async function grant() {
   await run(async () => {
     if (!draft.value) return
-    await api(adminPath(draft.value.skill.slug) + '/roles', 'PUT', { ids: selectedRoles.value })
+    await api(adminPath(draft.value.skill.name) + '/roles', 'PUT', { ids: selectedRoles.value })
     notice.value = '角色授权已保存'
   })
 }
 
-async function openRelease(slug: string, chosen: string) {
+async function openRelease(name: string, chosen: string) {
   if (props.admin) {
-    release.value = await api<ReleaseContent>(adminPath(slug) + '/releases/' + chosen)
+    release.value = await api<ReleaseContent>(adminPath(name) + '/releases/' + chosen)
   } else {
-    const info = await api<ReleaseContent>(readPath(slug) + '?version=' + chosen)
-    const response = await fetch('/api/v1' + readPath(slug) + '/content?version=' + chosen)
+    const info = await api<ReleaseContent>(readPath(name) + '?version=' + chosen)
+    const response = await fetch('/api/v1' + readPath(name) + '/content?version=' + chosen)
     if (!response.ok) throw new Error('无法读取该版本正文')
     release.value = { ...info, source: await response.text() }
   }
@@ -174,12 +170,12 @@ async function openRelease(slug: string, chosen: string) {
   <p v-if="notice" class="notice" role="status">{{ notice }}</p>
   <div class="layout">
     <aside class="card inventory-list">
-      <label>搜索<input v-model="query" placeholder="名称或 slug" type="search" /></label>
+      <label>搜索<input v-model="query" placeholder="Skill 名称" type="search" /></label>
       <p v-if="!filtered.length" class="muted">没有匹配的 Skill</p>
-      <button v-for="skill in filtered" :key="skill.slug" class="skill-row" type="button"
-        :class="{ selected: draft?.skill.slug === skill.slug || release?.slug === skill.slug }"
+      <button v-for="skill in filtered" :key="skill.name" class="skill-row" type="button"
+        :class="{ selected: draft?.skill.name === skill.name || release?.name === skill.name }"
         :disabled="busy" @click="open(skill)">
-        <span><strong>{{ skill.name }}</strong><small>{{ skill.slug }}</small></span>
+        <span><strong>{{ skill.name }}</strong><small>{{ skill.description }}</small></span>
         <small v-if="skill.status">{{ statuses[skill.status] }}</small>
         <small v-else-if="'version' in skill">{{ skill.version }}</small>
       </button>
@@ -187,11 +183,8 @@ async function openRelease(slug: string, chosen: string) {
     <section v-if="admin && (creating || draft)" class="card">
       <h2>{{ creating ? '新建 Skill' : draft?.skill.name }}</h2>
       <form @submit.prevent="save">
-        <div class="columns">
-          <label>slug<input v-model="editor.slug" :disabled="!creating" required pattern="[a-z0-9]+(-[a-z0-9]+)*" maxlength="64" /></label>
-          <label>显示名称<input v-model="editor.name" :disabled="draft?.skill.status === 'archived'" required maxlength="128" /></label>
-        </div>
-        <label>描述<input v-model="editor.description" :disabled="draft?.skill.status === 'archived'" maxlength="1024" /></label>
+        <p v-if="draft"><strong>Skill 名称</strong> {{ draft.skill.name }} · <strong>描述</strong> {{ draft.skill.description }}</p>
+        <p v-if="draft?.skill.status !== 'archived'" class="muted">请在 SKILL.md 的 YAML 中填写 name 和 description。首次发布后名称固定。</p>
         <div class="toolbar"><strong>SKILL.md</strong><button type="button" @click="preview = !preview">{{ preview ? '编辑' : 'Markdown 预览' }}</button></div>
         <MarkdownPreview v-if="preview" :source="editor.source" />
         <textarea v-else v-model="editor.source" aria-label="SKILL.md" :readonly="draft?.skill.status === 'archived'" rows="12"></textarea>
@@ -220,7 +213,7 @@ async function openRelease(slug: string, chosen: string) {
           <summary>发布历史</summary>
           <p v-if="!draft.releases.length" class="muted">暂无发布版本</p>
           <button v-for="item in draft.releases" :key="item.version" type="button"
-            @click="run(() => openRelease(editor.slug, item.version))">{{ item.version }}</button>
+            @click="run(() => openRelease(draft!.skill.name, item.version))">{{ item.version }}</button>
         </details>
         <button v-if="draft.skill.status !== 'archived'" class="danger section" :disabled="busy" @click="remove">
           {{ draft.skill.status === 'draft' ? '删除草稿' : '归档 Skill' }}
@@ -236,7 +229,7 @@ async function openRelease(slug: string, chosen: string) {
       <div class="toolbar">
         <label>发布版本
           <select :value="release.version" :disabled="busy"
-            @change="run(() => openRelease(release!.slug, ($event.target as HTMLSelectElement).value))">
+            @change="run(() => openRelease(release!.name, ($event.target as HTMLSelectElement).value))">
             <option v-for="item in releases" :key="item.version">{{ item.version }}</option>
           </select>
         </label>

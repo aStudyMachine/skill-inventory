@@ -6,7 +6,7 @@ Skill Inventory 管理和分发公司内部的可复用 Skill。平台账号的�
 
 **Skill**
 
-可复用的能力单元，由 `SKILL.md` 和可选配套资源组成。每个 Skill 有唯一标识 `slug`，可有多个发布版本。
+可复用的能力单元，由 `SKILL.md` 和可选配套资源组成。以 `SKILL.md` 的 YAML frontmatter 中的 `name` 唯一识别，可有多个发布版本。首次发布后名称固定。
 
 **草稿**
 

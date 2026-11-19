@@ -68,8 +68,7 @@ def seed(origin, passwords, root):
                       {"ids": [roles[name] for name in assigned]})
 
     def draft(slug, title, role, body):
-        skill = {"slug": slug, "name": title, "description": f"{role} 角色演示技能",
-                 "source": markdown(slug, title, body)}
+        skill = {"source": markdown(slug, title, body)}
         admin.request("POST", "/admin/skills", skill)
         admin.request("PUT", f"/admin/skills/{slug}/roles", {"ids": [roles[role]]})
         return skill
@@ -92,9 +91,3 @@ def seed(origin, passwords, root):
     sample = markdown("release-checklist", "发布检查清单", "RELEASE-100：确认回滚版本与审批记录。")
     (root / "release-checklist.zip").write_bytes(
         scenario_zip(sample, "# 发布清单\n1. 核对版本。\n2. 核对回滚操作。\n"))
-
-
-def issue_device(origin, password):
-    session = Session(origin)
-    session.login("demo-dev", password)
-    return session.request("POST", "/device-tokens", {"name": "Portable demo"})["token"]

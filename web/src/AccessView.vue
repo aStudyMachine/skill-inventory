@@ -46,6 +46,18 @@ const createRole = () => run(async () => {
 const assign = (account: Account) => run(async () => {
   await api('/admin/accounts/' + account.id + '/roles', 'PUT', { ids: account.roles })
 }, '角色分配已保存')
+const changeStatus = (account: Account) => run(async () => {
+  if (account.enabled && !window.confirm('停用后，此账号的所有登录会话都会失效。继续？')) return
+  await api('/admin/accounts/' + account.id + '/status', 'PUT', { enabled: !account.enabled })
+  await refresh()
+})
+
+const newPasswords = ref<Record<number, string>>({})
+const changePassword = (account: Account) => run(async () => {
+  try {
+    await api('/admin/accounts/' + account.id + '/password', 'PUT', { password: newPasswords.value[account.id] })
+  } finally { delete newPasswords.value[account.id] }
+}, '密码已修改，原登录会话已失效')
 </script>
 
 <template>
@@ -67,14 +79,20 @@ const assign = (account: Account) => run(async () => {
     </form>
   </div>
   <section class="card section">
-    <h2>角色分配</h2>
-    <form v-for="account in accounts" :key="account.id" class="section" @submit.prevent="assign(account)">
+    <h2>账号管理</h2>
+    <div v-for="account in accounts" :key="account.id" class="section">
       <h3>{{ account.username }}</h3>
       <p v-if="account.admin" class="muted">管理员</p>
-      <template v-else>
+      <form v-else @submit.prevent="assign(account)">
+        <p>{{ account.enabled ? '已启用' : '已停用' }}</p>
         <label v-for="role in roles" :key="role.id" class="check"><input v-model="account.roles" :value="role.id" type="checkbox" />{{ role.name }}</label>
         <button :disabled="busy">保存角色</button>
-      </template>
-    </form>
+        <button type="button" :disabled="busy" @click="changeStatus(account)">{{ account.enabled ? '停用账号' : '启用账号' }}</button>
+      </form>
+      <form @submit.prevent="changePassword(account)">
+        <label>新密码<input v-model="newPasswords[account.id]" required minlength="10" type="password" autocomplete="new-password" /></label>
+        <button :disabled="busy">修改密码</button>
+      </form>
+    </div>
   </section>
 </template>

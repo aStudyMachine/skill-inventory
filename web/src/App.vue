@@ -3,7 +3,6 @@ import { onMounted, ref } from 'vue'
 import { api, ApiError, type Account } from './api'
 import SkillsView from './SkillsView.vue'
 import AccessView from './AccessView.vue'
-import TokensView from './TokensView.vue'
 
 const account = ref<Account>()
 const panel = ref('skills')
@@ -48,7 +47,6 @@ function navigate(destination: string) {
       <nav aria-label="主导航">
         <button :aria-current="panel === 'skills' ? 'page' : undefined" @click="navigate('skills')">Skill 库</button>
         <button v-if="account.admin" :aria-current="panel === 'access' ? 'page' : undefined" @click="navigate('access')">账号与角色</button>
-        <button :aria-current="panel === 'tokens' ? 'page' : undefined" @click="navigate('tokens')">设备令牌</button>
       </nav>
       <div class="identity"><span>{{ account.username }}</span><button @click="logout">退出</button></div>
     </template>
@@ -58,7 +56,6 @@ function navigate(destination: string) {
     <template v-if="account">
       <SkillsView v-if="panel === 'skills'" ref="skills" :admin="account.admin" />
       <AccessView v-else-if="panel === 'access' && account.admin" />
-      <TokensView v-else />
     </template>
     <form v-else class="login card" @submit.prevent="login">
       <h1>登录</h1>
